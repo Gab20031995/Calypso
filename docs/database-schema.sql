@@ -1,7 +1,5 @@
 -- =========================================================
--- SALSAS CALYPSO — Esquema de base de datos (Supabase/Postgres)
--- Pega este archivo completo en el SQL Editor de tu proyecto
--- de Supabase y dale "Run".
+-- SALSAS CALYPSO — Esquema de base de datos CORREGIDO
 -- =========================================================
 
 -- ---------------------------------------------------------
@@ -14,16 +12,36 @@ create table if not exists public.profiles (
   phone text,
   address text,
   stickers_count integer not null default 0,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  is_admin boolean not null default false
 );
-alter table public.profiles add column if not exists email text;
 
+alter table public.profiles add column if not exists email text;
+alter table public.profiles add column if not exists is_admin boolean not null default false;
 alter table public.profiles enable row level security;
 
-drop policy if exists "Los usuarios ven su propio perfil" on public.profiles;
-create policy "Los usuarios ven su propio perfil"
+-- Llenar correos si faltan en perfiles existentes
+update public.profiles p set email = u.email
+  from auth.users u where p.id = u.id and p.email is null;
+
+-- ---------------------------------------------------------
+-- 2. FUNCIÓN DE ADMINISTRADOR (Movida aquí arriba para evitar errores)
+-- ---------------------------------------------------------
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select coalesce((select is_admin from public.profiles where id = auth.uid()), false);
+$$;
+
+-- Políticas de Perfiles (ahora sí pueden usar is_admin)
+drop policy if exists "Los admins ven todos los perfiles" on public.profiles;
+create policy "Los admins ven todos los perfiles"
   on public.profiles for select
-  using (auth.uid() = id);
+  using (auth.uid() = id or public.is_admin());
 
 drop policy if exists "Los usuarios actualizan su propio perfil" on public.profiles;
 create policy "Los usuarios actualizan su propio perfil"
@@ -31,7 +49,7 @@ create policy "Los usuarios actualizan su propio perfil"
   using (auth.uid() = id);
 
 -- ---------------------------------------------------------
--- 2. TRIGGER: crear perfil automáticamente al registrarse
+-- 3. TRIGGER: crear perfil automáticamente al registrarse
 -- ---------------------------------------------------------
 create or replace function public.handle_new_user()
 returns trigger
@@ -59,7 +77,7 @@ create trigger on_auth_user_created
   for each row execute procedure public.handle_new_user();
 
 -- ---------------------------------------------------------
--- 3. TABLAS DE PEDIDOS
+-- 4. TABLAS DE PEDIDOS
 -- ---------------------------------------------------------
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
@@ -81,7 +99,7 @@ end $$;
 create table if not exists public.order_items (
   id uuid primary key default gen_random_uuid(),
   order_id uuid not null references public.orders(id) on delete cascade,
-  flavor text not null,          -- 'original' | 'mango' | 'sweetchili'
+  flavor text not null,
   quantity integer not null default 1,
   price numeric(10,2) not null default 0,
   is_free boolean not null default false
@@ -90,21 +108,22 @@ create table if not exists public.order_items (
 alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
 
-drop policy if exists "Los usuarios ven sus propios pedidos" on public.orders;
-create policy "Los usuarios ven sus propios pedidos"
+-- Políticas de Pedidos
+drop policy if exists "Los admins ven todos los pedidos" on public.orders;
+create policy "Los admins ven todos los pedidos"
   on public.orders for select
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id or public.is_admin());
 
-drop policy if exists "Los usuarios ven sus propios items" on public.order_items;
-create policy "Los usuarios ven sus propios items"
+drop policy if exists "Los admins ven todos los items" on public.order_items;
+create policy "Los admins ven todos los items"
   on public.order_items for select
   using (
     order_id in (select id from public.orders where user_id = auth.uid())
+    or public.is_admin()
   );
 
 -- ---------------------------------------------------------
--- 4. FUNCIÓN: registrar pedido y sumar sellos
---    p_items ejemplo: [{"flavor":"mango","quantity":2,"price":5,"is_free":false}]
+-- 5. FUNCIÓN: registrar pedido y sumar sellos
 -- ---------------------------------------------------------
 create or replace function public.register_order(p_items jsonb)
 returns integer
@@ -151,10 +170,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------
--- 5. TABLA DE SOLICITUDES DE CANJE
---    El cliente solicita canjear su botella gratis; el admin
---    la aprueba desde el panel. Los sellos no se descuentan
---    hasta que el admin confirma la entrega.
+-- 6. TABLA DE SOLICITUDES DE CANJE
 -- ---------------------------------------------------------
 create table if not exists public.redemptions (
   id uuid primary key default gen_random_uuid(),
@@ -173,8 +189,7 @@ create policy "Los usuarios ven sus propios canjes"
   using (auth.uid() = user_id or public.is_admin());
 
 -- ---------------------------------------------------------
--- 6. FUNCIÓN: el cliente solicita canjear (6 sellos = 1 botella gratis)
---    No descuenta sellos todavía: solo crea la solicitud.
+-- 7. FUNCIÓN: el cliente solicita canjear (6 sellos = 1 botella gratis)
 -- ---------------------------------------------------------
 create or replace function public.redeem_reward()
 returns uuid
@@ -204,55 +219,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------
--- 7. ROL DE ADMINISTRADOR
--- ---------------------------------------------------------
-alter table public.profiles add column if not exists is_admin boolean not null default false;
-
--- Si ya tenías cuentas creadas antes de agregar la columna "email",
--- esto la rellena a partir de auth.users (seguro correrlo varias veces).
-update public.profiles p set email = u.email
-  from auth.users u where p.id = u.id and p.email is null;
-
--- Función auxiliar: evita la recursión de RLS al consultar el propio
--- rol de administrador (corre con permisos elevados, sin pasar por RLS).
-create or replace function public.is_admin()
-returns boolean
-language sql
-security definer
-set search_path = public
-stable
-as $$
-  select coalesce((select is_admin from public.profiles where id = auth.uid()), false);
-$$;
-
--- El admin puede ver todos los perfiles, pedidos e items, no solo los suyos.
-drop policy if exists "Los admins ven todos los perfiles" on public.profiles;
-create policy "Los admins ven todos los perfiles"
-  on public.profiles for select
-  using (auth.uid() = id or public.is_admin());
-
-drop policy if exists "Los usuarios ven su propio perfil" on public.profiles;
-
-drop policy if exists "Los admins ven todos los pedidos" on public.orders;
-create policy "Los admins ven todos los pedidos"
-  on public.orders for select
-  using (auth.uid() = user_id or public.is_admin());
-
-drop policy if exists "Los usuarios ven sus propios pedidos" on public.orders;
-
-drop policy if exists "Los admins ven todos los items" on public.order_items;
-create policy "Los admins ven todos los items"
-  on public.order_items for select
-  using (
-    order_id in (select id from public.orders where user_id = auth.uid())
-    or public.is_admin()
-  );
-
-drop policy if exists "Los usuarios ven sus propios items" on public.order_items;
-
--- ---------------------------------------------------------
 -- 8. FUNCIÓN: el admin agrega o resta sellos manualmente
---    (por ejemplo, una venta hecha en persona o una corrección)
 -- ---------------------------------------------------------
 create or replace function public.admin_adjust_stickers(p_user_id uuid, p_delta integer)
 returns integer
@@ -277,7 +244,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------
--- 9. FUNCIÓN: el admin aprueba un canje (descuenta los 6 sellos)
+-- 9. FUNCIÓN: el admin aprueba un canje
 -- ---------------------------------------------------------
 create or replace function public.admin_fulfill_redemption(p_redemption_id uuid)
 returns integer
@@ -315,7 +282,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------
--- 10. FUNCIÓN: el admin rechaza/cancela un canje sin descontar sellos
+-- 10. FUNCIÓN: el admin rechaza/cancela un canje
 -- ---------------------------------------------------------
 create or replace function public.admin_cancel_redemption(p_redemption_id uuid)
 returns void
@@ -355,13 +322,5 @@ end;
 $$;
 
 -- =========================================================
--- Fin del esquema. Con esto ya tienes: cuentas de cliente,
--- pedidos con estado, el Club Calypso y el panel de admin
--- funcionando en la base de datos.
---
--- Para volverte administrador, corre esto UNA VEZ con tu
--- propio correo (después de haberte registrado en el sitio):
---
---   update public.profiles set is_admin = true
---   where id = (select id from auth.users where email = 'tu@correo.com');
+-- FIN DEL ESQUEMA
 -- =========================================================
