@@ -67,6 +67,28 @@ salsas-calypso-web/
 └── package.json
 ```
 
+## Panel de administración (`/admin`)
+
+El sitio incluye un panel en `/admin` para manejar el Club Calypso día a día:
+
+- **Pedidos**: todos los pedidos con cliente, botellas, total y fecha. Cada uno se puede
+  mover de estado con un clic: *Pendiente → Aceptar pedido → Marcar como despachado →
+  Marcar como entregado*, o cancelarlo en cualquier momento.
+- **Clientes activos**: nombre, correo, teléfono y sellos acumulados de cada cliente.
+- **Agregar o restar sellos manualmente** (por ejemplo, una venta hecha en persona que no pasó por el checkout en línea).
+- **Solicitudes de canje pendientes**: cuando un cliente junta 6 sellos, ya no recibe la botella gratis al instante — envía una solicitud, y aquí la aceptas (descuenta los 6 sellos y queda registrada como entregada) o la rechazas.
+
+**Para volverte administrador**, regístrate normalmente en el sitio y luego corre esto una vez en el SQL Editor de Supabase, con tu propio correo:
+
+```sql
+update public.profiles set is_admin = true
+where id = (select id from auth.users where email = 'tu@correo.com');
+```
+
+Vuelve a iniciar sesión y verás el enlace "Admin" en el menú. Nadie más puede acceder a `/admin` ni ver los datos de otros clientes: la base de datos revisa `is_admin` en cada consulta, no solo el frontend.
+
+Si despliegas en Cloudflare Pages, el archivo `public/_redirects` ya está incluido — es necesario para que `/admin` no dé error 404 al recargar la página directamente en esa ruta.
+
 ## Qué falta para lanzar en producción
 
 - [ ] Conectar una pasarela de pago real (Stripe/Yappy) en `checkout()` dentro de `App.jsx`.

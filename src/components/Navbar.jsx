@@ -8,6 +8,7 @@ export default function Navbar({ user, cartCount, onOpenAccount, onOpenCart }) {
           <a href="#historia">Historia</a>
           <a href="#tienda">Tienda</a>
           <a href="#club">Club Calypso</a>
+          {user?.is_admin && <a href="/admin">Admin</a>}
         </div>
         <div className="navicons">
           <button onClick={onOpenAccount}>{user ? user.name?.split(' ')[0] : 'Cuenta'}</button>

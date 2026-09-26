@@ -17,10 +17,12 @@ flowchart TD
     J --> K[Crea orden + items]
     J --> L[Suma 1 sello por botella en profiles.stickers_count]
     L --> M{¿stickers_count >= 6?}
-    M -- Sí --> N[Botón 'Canjear botella gratis' se activa]
+    M -- Sí --> N[Botón 'Solicitar botella gratis' se activa]
     M -- No --> O[Muestra progreso: faltan X sellos]
-    N --> P[Función redeem_reward resta 6 sellos]
-    P --> Q[Se agrega botella gratis al próximo pedido]
+    N --> P[Función redeem_reward crea solicitud 'pending']
+    P --> R[Admin ve la solicitud en /admin]
+    R -- Acepta --> S[admin_fulfill_redemption resta 6 sellos]
+    R -- Rechaza --> T[admin_cancel_redemption, no descuenta sellos]
 ```
 
 ## Componentes del sistema
@@ -51,9 +53,30 @@ manipule el número de sellos desde el navegador.
 
 - `register_order(items)`: función que registra el pedido y suma 1 sello por cada botella
   (no cuenta las botellas gratis ya canjeadas).
-- `redeem_reward()`: función que valida que haya 6 o más sellos, resta 6 y confirma el canje.
+- `redeem_reward()`: valida que haya 6 o más sellos y crea una **solicitud de canje** con
+  estado `pending` — ya no descuenta los sellos de inmediato.
+- `admin_fulfill_redemption(id)`: solo puede ejecutarla un administrador. Descuenta los 6
+  sellos y marca la solicitud como `fulfilled`.
+- `admin_cancel_redemption(id)`: rechaza la solicitud sin tocar los sellos del cliente.
+- `admin_adjust_stickers(user_id, delta)`: le permite al admin sumar o restar sellos a mano
+  (ventas en persona, correcciones).
 
 El frontend solo llama a estas funciones (`supabase.rpc(...)`) y muestra el resultado.
+
+### 6. Panel de administración (`/admin`)
+Página protegida por rol: al cargar, verifica `profiles.is_admin` del usuario en sesión antes
+de mostrar cualquier dato. Ahí el equipo de Salsas Calypso puede:
+
+- Ver todos los **pedidos**, con cliente, botellas, total y fecha, y moverlos por su estado:
+  `pending → accepted → shipped → delivered` (o `cancelled` en cualquier momento), vía
+  `admin_update_order_status(order_id, status)`.
+- Ver la lista de **clientes activos** con sus sellos, y ajustarlos manualmente
+  (`admin_adjust_stickers`).
+- Ver y resolver las **solicitudes de canje** pendientes (`admin_fulfill_redemption` /
+  `admin_cancel_redemption`).
+
+Ningún cliente sin `is_admin = true` puede leer estos datos, porque las políticas de la base de
+datos (no solo el frontend) lo impiden.
 
 ### 5. Seguridad (Row Level Security)
 Cada cliente solo puede leer y modificar **su propia fila** en `profiles`, `orders` y `order_items`.

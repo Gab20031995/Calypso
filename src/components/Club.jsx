@@ -1,6 +1,13 @@
-export default function Club({ user, stickers, onRedeem, onOpenAccount }) {
+export default function Club({ user, stickers, pendingRedemption, onRedeem, onOpenAccount }) {
   const remaining = Math.max(0, 6 - stickers);
-  const canRedeem = stickers >= 6;
+  const canRedeem = stickers >= 6 && !pendingRedemption;
+
+  let message = 'Inicia sesión para ver y acumular tus sellos.';
+  if (user) {
+    if (pendingRedemption) message = 'Tu solicitud de botella gratis está en revisión. Te avisaremos pronto.';
+    else if (stickers >= 6) message = '¡Botella gratis desbloqueada!';
+    else message = `Te faltan ${remaining} sello(s) para tu botella gratis.`;
+  }
 
   return (
     <section id="club" className="club">
@@ -8,7 +15,8 @@ export default function Club({ user, stickers, onRedeem, onOpenAccount }) {
         <div className="section-head">
           <h2>Club Calypso</h2>
           <p style={{ color: 'rgba(255,255,255,.85)' }}>
-            Por cada botella que compras, ganas un sello. Junta 6 y la próxima botella va por la casa.
+            Por cada botella que compras, ganas un sello. Junta 6 y solicita tu botella gratis —
+            nuestro equipo confirma la entrega.
           </p>
         </div>
         <div className="clubgrid">
@@ -20,16 +28,10 @@ export default function Club({ user, stickers, onRedeem, onOpenAccount }) {
                 </div>
               ))}
             </div>
-            <p id="rewardMsg">
-              {!user
-                ? 'Inicia sesión para ver y acumular tus sellos.'
-                : canRedeem
-                ? '¡Botella gratis desbloqueada!'
-                : `Te faltan ${remaining} sello(s) para tu botella gratis.`}
-            </p>
+            <p id="rewardMsg">{message}</p>
             {canRedeem && (
               <button className="pill solid" onClick={onRedeem}>
-                Canjear botella gratis
+                Solicitar botella gratis
               </button>
             )}
           </div>
